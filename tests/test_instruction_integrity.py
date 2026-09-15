@@ -194,3 +194,47 @@ class SkillConventions(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EnvironmentVariableNames(unittest.TestCase):
+    """The names the code reads must be the names the docs tell people to set.
+
+    `scripts/selftest.py` asked for `PUBLORA_PLATFORM_ID` while every other file
+    reads `LINKEDIN_PLATFORM_ID`, so its setup hint named a variable that does
+    nothing. Nothing caught it: the live test passed the invented name on the
+    command line and read it back, a closed loop that proved only itself.
+    """
+
+    #: Every credential the bundle reads. Adding one means adding it here.
+    KNOWN = {
+        "APIFY_TOKEN", "PUBLORA_API_KEY", "LINKEDIN_PLATFORM_ID",
+        "PIXFARO_TOKEN", "PIXFARO_API_KEY", "LINKEDIN_SKILLS_CUSTOM_POSTER",
+    }
+
+    def read_by_code(self):
+        found = set()
+        for source in list((ROOT / "lib").rglob("*.py")) + list((ROOT / "scripts").rglob("*.py")):
+            text = source.read_text(encoding="utf-8")
+            found |= set(re.findall(r'getenv\(\s*["\']([A-Z][A-Z0-9_]+)["\']', text))
+            found |= set(re.findall(r'environ\[\s*["\']([A-Z][A-Z0-9_]+)["\']', text))
+        return {name for name in found
+                if any(k in name for k in ("APIFY", "PUBLORA", "PIXFARO", "LINKEDIN"))}
+
+    def test_no_credential_name_is_invented(self):
+        unknown = sorted(self.read_by_code() - self.KNOWN)
+        self.assertEqual(unknown, [],
+                         "code reads variables that are not part of the bundle's contract; "
+                         "either a typo or an undocumented new one")
+
+    def test_the_platform_id_has_exactly_one_name(self):
+        names = {n for n in self.read_by_code() if "PLATFORM_ID" in n}
+        self.assertEqual(names, {"LINKEDIN_PLATFORM_ID"},
+                         f"two names for the same setting: {sorted(names)}")
+
+    def test_env_example_documents_what_the_code_reads(self):
+        example = (ROOT / ".env.example").read_text(encoding="utf-8")
+        documented = set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]+)=", example, re.M))
+        # The custom-poster hook is a power-user escape hatch, not a credential.
+        required = self.read_by_code() - {"LINKEDIN_SKILLS_CUSTOM_POSTER", "PIXFARO_API_KEY"}
+        missing = sorted(required - documented)
+        self.assertEqual(missing, [], f".env.example never mentions: {missing}")

@@ -225,3 +225,41 @@ class DeleteGuard(unittest.TestCase):
         client._session = mock.Mock()
         client._session.delete.return_value = mock.Mock(status_code=200, json=lambda: {"success": True})
         self.assertEqual(client.delete_post(post_group_id="abc", allow_live=True), {"success": True})
+
+
+class PlatformIdResolution(unittest.TestCase):
+    """The second Publora secret, derived rather than demanded.
+
+    A key with no platform id behaves exactly like no key at all, and the id
+    lives in a different corner of the dashboard from the key. It is derivable,
+    so the bundle asks the API instead of asking the user.
+    """
+
+    def client(self, connections):
+        from lib.publora_client import PubloraClient
+
+        client = PubloraClient.__new__(PubloraClient)
+        client.list_platform_connections = lambda: connections
+        return client
+
+    def test_one_linkedin_channel_resolves(self):
+        resolved = self.client([
+            {"platformId": "instagram-123"},
+            {"platformId": "linkedin-abc"},
+        ]).resolve_linkedin_platform_id()
+        self.assertEqual(resolved, "linkedin-abc")
+
+    def test_several_linkedin_channels_refuse_to_guess(self):
+        """Picking one would publish to the wrong account. Ask instead."""
+        resolved = self.client([
+            {"platformId": "linkedin-abc"},
+            {"platformId": "linkedin-xyz"},
+        ]).resolve_linkedin_platform_id()
+        self.assertIsNone(resolved)
+
+    def test_no_linkedin_channel_resolves_to_nothing(self):
+        self.assertIsNone(self.client([{"platformId": "threads-1"}]).resolve_linkedin_platform_id())
+
+    def test_other_platforms_are_never_mistaken_for_linkedin(self):
+        """A prefix match, not a substring one: `mylinkedin-` is not LinkedIn."""
+        self.assertIsNone(self.client([{"platformId": "mylinkedin-abc"}]).resolve_linkedin_platform_id())

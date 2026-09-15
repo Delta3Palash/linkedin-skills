@@ -197,6 +197,14 @@ def publish(
 
         client = PubloraClient()
         platform_id = kwargs.get("platform_id") or os.getenv("LINKEDIN_PLATFORM_ID")
+        if not platform_id:
+            # Derivable from the key, so do not make the user fetch it by hand.
+            # Only when the account has exactly one LinkedIn channel: with
+            # several, picking one would publish to the wrong account.
+            try:
+                platform_id = client.resolve_linkedin_platform_id()
+            except Exception:
+                platform_id = None                # stay on the documented path
 
         if kind in ("comment", "reply"):
             post_urn = kwargs["post_urn"]

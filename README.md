@@ -216,6 +216,14 @@ python3 scripts/selftest.py --fresh  # clone to a temp dir and check a genuinely
 
 It reports each of Apify, Publora and Pixfaro separately, using free endpoints that verify a key without doing any work, and it names what is missing rather than only that something is. Skills that need a layer you have not connected still work, by drafting for you to paste, and the report says which ones those are.
 
+### Two ways to connect, pick either
+
+**A connector, if you are on claude.ai or Claude Code.** Publora and Pixfaro both publish one. Authorize it once in your connector settings and the skills use it: no key on disk, no `.env`, nothing to rotate. Publora's connector also carries `post_stats` and `profile_stats`, which the REST path below does not have.
+
+**An API key, if you are anywhere else** — a plain terminal, CI, a script, or you would rather the credential lived in a file you control. That is the seven steps below.
+
+They are not exclusive and neither is second-class. One caveat worth knowing: `scripts/check_config.py` and `scripts/selftest.py` read `.env` and the shell, so a connector is invisible to them. If they say "manual" while your posts are going out, the connector is doing the work and nothing is wrong.
+
 
 **Step 1.** Sign up at https://app.publora.com/signup (free)
 

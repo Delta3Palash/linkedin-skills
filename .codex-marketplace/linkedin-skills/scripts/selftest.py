@@ -175,7 +175,7 @@ def phase_accounts(offline: bool) -> tuple[Phase, dict]:
             phase.add(FAIL, "Apify", f"token rejected (HTTP {status}); reading falls back to paste")
 
     # --- Publora: writing. Needs both halves to auto-post.
-    key, platform = os.getenv("PUBLORA_API_KEY"), os.getenv("PUBLORA_PLATFORM_ID")
+    key, platform = os.getenv("PUBLORA_API_KEY"), os.getenv("LINKEDIN_PLATFORM_ID")
     if not key:
         phase.add(SKIP, "Publora", "no PUBLORA_API_KEY; drafts only, you copy-paste")
     elif offline:
@@ -188,7 +188,7 @@ def phase_accounts(offline: bool) -> tuple[Phase, dict]:
                 live["publora"] = True
             else:
                 phase.add(WARN, "Publora",
-                          "key valid but PUBLORA_PLATFORM_ID unset, so posting stays manual")
+                          "key valid but LINKEDIN_PLATFORM_ID unset, so posting stays manual")
                 # The id is the half people miss, and it is not guessable. Read
                 # the account's own connections and hand over the line to paste.
                 code, conns = probe("https://api.publora.com/api/v1/platform-connections",
@@ -200,7 +200,7 @@ def phase_accounts(offline: bool) -> tuple[Phase, dict]:
                         if isinstance(rows, list) else []
                     if linked:
                         phase.add(SKIP, "  add to .env",
-                                  f"PUBLORA_PLATFORM_ID={linked[0]['platformId']}"
+                                  f"LINKEDIN_PLATFORM_ID={linked[0]['platformId']}"
                                   + (f"  ({linked[0].get('name')})" if linked[0].get("name") else ""))
                     else:
                         phase.add(WARN, "  no LinkedIn connection",
@@ -379,7 +379,7 @@ def phase_live(live: dict, assume_yes: bool) -> Phase:
             created = client.create_post(
                 content="linkedin-skills selftest draft. Not scheduled, deleted immediately.",
                 platforms=[{"platform": "linkedin",
-                            "platformId": os.environ["PUBLORA_PLATFORM_ID"]}],
+                            "platformId": os.environ["LINKEDIN_PLATFORM_ID"]}],
                 media_urls=[media_url] if media_url else None,
             )
             group = created.get("postGroupId")
@@ -483,8 +483,14 @@ def main() -> int:
     failed = [p.title for p in phases if p.failed]
     print(f"\n{BOLD}{'FAILED: ' + ', '.join(failed) if failed else 'All phases clean'}{OFF}")
     if not any(live.values()) and not args.offline:
-        print(f"{GREY}No API layer is connected. Everything still works, by drafting for you to "
-              f"paste. See .env.example.{OFF}")
+        print(f"{GREY}No API layer is connected here. Everything still works, by drafting for "
+              f"you to paste. See .env.example.{OFF}")
+        if os.getenv("CLAUDECODE"):
+            # A connector attached in claude.ai lives in the agent's runtime,
+            # not the shell, so this run cannot see it. Saying "nothing is
+            # connected" flatly is wrong for anyone using that path.
+            print(f"{GREY}This run reads .env and the shell only. A Publora or Pixfaro "
+                  f"connector attached in claude.ai is invisible to it and works regardless.{OFF}")
     return len(failed)
 
 

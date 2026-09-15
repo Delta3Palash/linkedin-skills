@@ -305,6 +305,18 @@ def check_backends(report: Report) -> None:
         "pixfaro (auto-generate)" if images == "pixfaro" else "manual (prompt drafted for you)",
     )
 
+    # This script reads environment variables. A Publora or Pixfaro connector
+    # attached in claude.ai lives in the agent's runtime, not in the shell, so
+    # it is invisible here - and saying "manual" flatly is then wrong in a way
+    # that reads as a broken setup: the user has just watched a post go out.
+    if (publish == "manual" or images != "pixfaro") and os.getenv("CLAUDECODE"):
+        report.add(
+            OFF,
+            "  connectors",
+            "this check only sees .env and the shell. If you connected Publora or "
+            "Pixfaro in claude.ai, the skills use that and it still works.",
+        )
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])

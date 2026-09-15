@@ -1,15 +1,18 @@
 """Thin Publora REST client for the LinkedIn Skills project.
 
-Wraps the Publora API endpoints. As of 2026-05-11 Publora exposes:
-- POST /create-post              (schedule cross-platform post)
-- POST /linkedin-comments        (top-level or reply via parentComment)
+Wraps the Publora API endpoints. Verified against the live API 2026-09-15:
+- POST   /create-post            (draft when scheduledTime is omitted)
+- GET    /get-post/<id>          (status, platforms, media, child posts)
+- DELETE /delete-post/<id>       (cancel; see the guard on delete_post)
+- GET    /platform-connections   (the channels this key can post to)
+- GET    /platform-limits        (character caps, media ceilings; free)
+- POST   /linkedin-comments      (top-level or reply via parentComment)
 - DELETE /linkedin-comments      (remove a comment we posted)
-- POST /linkedin-reactions       (react to a post or comment)
-- POST /linkedin-reshare         (reshare/repost a post, optional commentary)
+- POST   /linkedin-reactions     (react to a post or comment)
+- POST   /linkedin-reshare       (reshare/repost a post, optional commentary)
 
-There is no read-side endpoint at this time (no GET /posts, no list, no
-delete-scheduled-post). Post scheduling is fire-and-forget; cancellation
-must be done in the Publora dashboard.
+The read and cancel endpoints are recent. This docstring claimed for months that
+they did not exist, which is why nothing in the bundle used them.
 
 Auth header: x-publora-key: sk_...
 
@@ -203,6 +206,30 @@ class PubloraClient:
     #: Statuses whose content is, or may be, already on the platform. Deleting
     #: one destroys the only record of something that stays live.
     LIVE_STATUSES = ("published", "partially_published")
+
+    def list_platform_connections(self) -> list[dict[str, Any]]:
+        """Every channel this key can post to, with its `platformId`.
+
+        The id is the second half of a working Publora setup and the half people
+        miss: a key with no platform id behaves exactly like no key at all. It is
+        also derivable from the key, which is why `resolve_linkedin_platform_id`
+        below asks rather than making the user copy it out of the dashboard.
+        """
+        r = self._session.get(f"{self.BASE_URL}/platform-connections", timeout=self.timeout)
+        payload = self._handle(r)
+        rows = payload.get("connections") or payload.get("data") or payload
+        return rows if isinstance(rows, list) else []
+
+    def resolve_linkedin_platform_id(self) -> Optional[str]:
+        """The account's LinkedIn channel, when there is exactly one.
+
+        Returns None when there are none, or several: with several, guessing
+        would publish to the wrong account, which is not a failure worth being
+        clever about. The caller then asks, and can list the candidates.
+        """
+        linkedin = [c.get("platformId") for c in self.list_platform_connections()
+                    if str(c.get("platformId", "")).startswith("linkedin-")]
+        return linkedin[0] if len(linkedin) == 1 else None
 
     def get_post(self, *, post_group_id: str) -> dict[str, Any]:
         """Read one post group: status, platforms, scheduled time, children."""
