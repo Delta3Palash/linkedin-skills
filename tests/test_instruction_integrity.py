@@ -238,3 +238,54 @@ class EnvironmentVariableNames(unittest.TestCase):
         required = self.read_by_code() - {"LINKEDIN_SKILLS_CUSTOM_POSTER", "PIXFARO_API_KEY"}
         missing = sorted(required - documented)
         self.assertEqual(missing, [], f".env.example never mentions: {missing}")
+
+
+class PersonalTemplates(unittest.TestCase):
+    """The Voice Profile and Story Bank ship blank and must stay blank in git.
+
+    Filled, they hold a voice fingerprint, client names, salaries and every
+    number the user gave the interviewer. None of it matches a credential
+    pattern, so the secret scan was blind to it, and `sync_codex_marketplace.py`
+    copied a filled one into a second tracked location without the user doing
+    anything they would recognise as risky (reported as #40).
+    """
+
+    TEMPLATES = ("references/voice-profile.md", "references/story-bank.md")
+    BLANK = re.compile(r"^\s*[-*]?\s*filled:\s*no\b", re.M | re.I)
+
+    def test_the_shipped_templates_are_blank(self):
+        for name in self.TEMPLATES:
+            text = (ROOT / name).read_text(encoding="utf-8")
+            self.assertRegex(text, self.BLANK, f"{name} is tracked with content in it")
+
+    def test_the_package_copies_are_blank_too(self):
+        for name in self.TEMPLATES:
+            packaged = ROOT / ".codex-marketplace" / "linkedin-skills" / name
+            if not packaged.is_file():
+                continue
+            self.assertRegex(packaged.read_text(encoding="utf-8"), self.BLANK,
+                             f"the Codex package ships a filled {name}")
+
+    def test_the_sync_script_refuses_to_copy_them(self):
+        """It must skip them by name and put the blank ones back from the index,
+        rather than trusting the working tree."""
+        source = (ROOT / "scripts" / "sync_codex_marketplace.py").read_text(encoding="utf-8")
+        self.assertIn("PERSONAL", source)
+        for name in ("voice-profile.md", "story-bank.md"):
+            self.assertIn(name, source, f"the sync does not name {name} as personal")
+        self.assertIn("restore_templates", source)
+
+    def test_the_secret_scan_knows_about_them(self):
+        """A filled template is not a credential, so it needs its own rule."""
+        scan = (ROOT / "scripts" / "check_no_secrets.py").read_text(encoding="utf-8")
+        self.assertIn("PERSONAL_TEMPLATES", scan)
+        self.assertIn("FILLED_MARKER", scan)
+
+    def test_both_templates_warn_before_they_are_filled(self):
+        """The file itself has to say that git carries it: a user filling it in
+        is not reading the release notes."""
+        for name in self.TEMPLATES:
+            text = (ROOT / name).read_text(encoding="utf-8")[:2000].lower()
+            self.assertTrue(
+                "gitignore" in text or "repo" in text,
+                f"{name} never warns that a filled copy travels with the repo")
