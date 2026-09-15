@@ -207,6 +207,16 @@ Publora also ships [official MCP skills](https://github.com/publora/skills) (`np
 
 ### Setup (2 minutes)
 
+Before or after any of it, one command tells you where you stand:
+
+```bash
+python3 scripts/selftest.py          # install, accounts, tests, and which skills work right now
+python3 scripts/selftest.py --fresh  # clone to a temp dir and check a genuinely clean install
+```
+
+It reports each of Apify, Publora and Pixfaro separately, using free endpoints that verify a key without doing any work, and it names what is missing rather than only that something is. Skills that need a layer you have not connected still work, by drafting for you to paste, and the report says which ones those are.
+
+
 **Step 1.** Sign up at https://app.publora.com/signup (free)
 
 **Step 2.** Connect LinkedIn: click **Channels** in the left sidebar, then **Add Channel**, pick **LinkedIn**, authorize.

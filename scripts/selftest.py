@@ -370,11 +370,15 @@ def run_fresh(argv) -> int:
         venv = temp / "venv"
         subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True, capture_output=True, timeout=600)
         python = venv / "bin" / "python"
-        install = subprocess.run([str(python), "-m", "pip", "install", "--quiet", "-r",
-                                  str(clone / "requirements.txt")], capture_output=True, text=True, timeout=900)
+        requirements = ["-r", str(clone / "requirements.txt")]
+        dev = clone / "requirements-dev.txt"
+        if dev.is_file():
+            requirements += ["-r", str(dev)]
+        install = subprocess.run([str(python), "-m", "pip", "install", "--quiet", *requirements],
+                                 capture_output=True, text=True, timeout=900)
         mark = PASS if install.returncode == 0 else FAIL
         print(f"  [{mark}] {'requirements installed':<34} "
-              f"{'from requirements.txt' if install.returncode == 0 else install.stderr.strip()[:60]}")
+              f"{'runtime + maintainer tooling' if install.returncode == 0 else install.stderr.strip()[:60]}")
         if install.returncode != 0:
             return 1
 
