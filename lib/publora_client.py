@@ -200,7 +200,18 @@ class PubloraClient:
             payload["mediaUrls"] = media_urls
         return self._post("/create-post", payload)
 
-    def delete_post(self, *, post_group_id: str) -> dict[str, Any]:
+    #: Statuses whose content is, or may be, already on the platform. Deleting
+    #: one destroys the only record of something that stays live.
+    LIVE_STATUSES = ("published", "partially_published")
+
+    def get_post(self, *, post_group_id: str) -> dict[str, Any]:
+        """Read one post group: status, platforms, scheduled time, children."""
+        r = self._session.get(
+            f"{self.BASE_URL}/get-post/{post_group_id}", timeout=self.timeout
+        )
+        return self._handle(r)
+
+    def delete_post(self, *, post_group_id: str, allow_live: bool = False) -> dict[str, Any]:
         """Delete a draft or scheduled post by its `postGroupId`.
 
         `postGroupId` is what `create_post` returns. This is the only way to
@@ -213,7 +224,29 @@ class PubloraClient:
         returns HTTP 404 ("Post group not found"), which surfaces here as a
         `PubloraError` rather than a silent success, so callers can tell "I
         deleted it" from "it was not there".
+
+        The status is read first, and a group whose content is already live is
+        refused unless `allow_live=True`. Publora's dashboard refuses the same
+        thing, but the public endpoint does not: it applies no status guard at
+        all, so deleting a published group succeeds and wipes the record, the
+        media and the stats of a post that stays up on LinkedIn
+        (publora/publora.com#478). The check costs one GET and is the difference
+        between cancelling a post and losing one.
         """
+        if not allow_live:
+            try:
+                group = self.get_post(post_group_id=post_group_id)
+            except PubloraError:
+                group = {}                   # 404 here: let the DELETE report it
+            status = (group.get("postGroup") or group).get("status")
+            if status in self.LIVE_STATUSES:
+                raise PubloraError(
+                    f"refusing to delete post group {post_group_id}: status is {status!r}, "
+                    "so its content is already on the platform. Deleting it removes the "
+                    "record, the media and the stats while the post stays live. Delete the "
+                    "post on LinkedIn instead, or pass allow_live=True if you really mean "
+                    "to drop the record."
+                )
         r = self._session.delete(
             f"{self.BASE_URL}/delete-post/{post_group_id}",
             timeout=self.timeout,

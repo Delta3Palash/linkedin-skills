@@ -177,3 +177,51 @@ class BackendDispatch(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DeleteGuard(unittest.TestCase):
+    """Publora's endpoint applies no status guard, so the client applies one.
+
+    Deleting a group whose content is already live wipes the record, the media
+    and the stats of a post that stays up on LinkedIn. The dashboard refuses it;
+    the public API does not (publora/publora.com#478).
+    """
+
+    def client(self, status):
+        from lib.publora_client import PubloraClient
+
+        client = PubloraClient.__new__(PubloraClient)
+        client.get_post = lambda *, post_group_id: {"postGroup": {"status": status}}
+        client.BASE_URL = "https://example.invalid"
+        client.timeout = 1
+        return client
+
+    def test_a_published_group_is_refused(self):
+        from lib.publora_client import PubloraError
+
+        for status in ("published", "partially_published"):
+            with self.subTest(status=status), self.assertRaises(PubloraError) as caught:
+                self.client(status).delete_post(post_group_id="abc")
+            self.assertIn(status, str(caught.exception))
+            self.assertIn("LinkedIn", str(caught.exception), "the refusal must say what to do instead")
+
+    def test_a_draft_is_deleted(self):
+        client = self.client("draft")
+        sent = {}
+
+        def record(url, **kwargs):
+            sent["url"] = url
+            return mock.Mock(status_code=200, json=lambda: {"success": True})
+
+        client._session = mock.Mock()
+        client._session.delete.side_effect = record
+        self.assertEqual(client.delete_post(post_group_id="abc"), {"success": True})
+        self.assertIn("/delete-post/abc", sent["url"])
+
+    def test_the_guard_can_be_overridden_deliberately(self):
+        """Dropping the record of a live post is sometimes what you mean. It
+        just must not be the default."""
+        client = self.client("published")
+        client._session = mock.Mock()
+        client._session.delete.return_value = mock.Mock(status_code=200, json=lambda: {"success": True})
+        self.assertEqual(client.delete_post(post_group_id="abc", allow_live=True), {"success": True})

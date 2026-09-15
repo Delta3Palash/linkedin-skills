@@ -348,10 +348,58 @@ def phase_live(live: dict, assume_yes: bool) -> Phase:
             phase.add(PASS, "Pixfaro identity", f"{who.get('name')} / {who.get('scope')} (free call)")
         except Exception as exc:
             phase.add(FAIL, "Pixfaro identity", f"{type(exc).__name__}: {str(exc)[:60]}")
-        phase.add(SKIP, "Pixfaro generation", "not run: costs $0.02-0.16 per image")
+
+        # quote_card is the cheapest render and the one whose output must be
+        # legible, since the template typesets the text rather than a model
+        # drawing it. That makes it the honest smoke test for the image layer.
+        try:
+            from lib import quote_card
+
+            started = time.time()
+            card = quote_card("Every limit you send an actor is ignored unless it is the "
+                              "key the actor declares.", size="1:1")
+            url = card.get("url")
+            phase.add(PASS if url else FAIL, "Pixfaro render",
+                      f"quote-card ${card.get('cost', '?')} in {time.time() - started:.0f}s"
+                      if url else f"no url in the response: {sorted(card)}")
+        except Exception as exc:
+            phase.add(FAIL, "Pixfaro render", f"{type(exc).__name__}: {str(exc)[:60]}")
 
     if live["publora"]:
-        phase.add(SKIP, "Publora write", "not run: would publish to a real account")
+        # Create a draft, read it back, delete it. A draft has no scheduled time,
+        # so nothing is queued and nothing reaches anyone's feed. This is the
+        # only way to exercise the write path without publishing.
+        from lib.publora_client import PubloraClient, PubloraError
+
+        client, group = PubloraClient(), None
+        try:
+            created = client.create_post(
+                content="linkedin-skills selftest draft. Not scheduled, deleted immediately.",
+                platforms=[{"platform": "linkedin",
+                            "platformId": os.environ["PUBLORA_PLATFORM_ID"]}],
+            )
+            group = created.get("postGroupId")
+            phase.add(PASS if group else FAIL, "Publora draft created",
+                      f"postGroupId {group}" if group else f"no id back: {sorted(created)}")
+        except (PubloraError, KeyError) as exc:
+            phase.add(FAIL, "Publora draft created", f"{type(exc).__name__}: {str(exc)[:60]}")
+
+        if group:
+            try:
+                fetched = client.get_post(post_group_id=group)
+                body = fetched.get("postGroup") or fetched
+                scheduled = body.get("scheduledTime")
+                phase.add(PASS if not scheduled else FAIL, "Publora draft read back",
+                          f"status {body.get('status')!r}, nothing scheduled"
+                          if not scheduled else f"it has a scheduled time: {scheduled}")
+            except PubloraError as exc:
+                phase.add(FAIL, "Publora draft read back", str(exc)[:60])
+            try:
+                client.delete_post(post_group_id=group)
+                phase.add(PASS, "Publora draft removed", "the account is back as it was")
+            except PubloraError as exc:
+                phase.add(FAIL, "Publora draft removed",
+                          f"CLEAN UP BY HAND: {group} - {str(exc)[:50]}")
     return phase
 
 
