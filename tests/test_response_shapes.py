@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import unittest
 
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
@@ -215,3 +216,53 @@ class ShapesDiverge(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CommentUrnForms(unittest.TestCase):
+    """Two URN forms exist and only one is the API's.
+
+    The web permalink and the Apify scraper both use `(activity:X,Y)`.
+    LinkedIn's API answers in `(urn:li:activity:X,Y)`, confirmed against a live
+    `create_comment` response. `parse_linkedin_url` normalises the short form
+    into the long one, and `build_parent_comment_urn` emits the long one, so a
+    reply built by following linkedin-reply-handler is correct.
+
+    Pinned because the difference looks like a bug from either direction, and
+    "correcting" it would break replies rather than fix them.
+    """
+
+    #: Verbatim from a live POST /linkedin-comments response, ids blunted.
+    API_FORM = "urn:li:comment:(urn:li:activity:7500000000000000000,7500000000000000001)"
+
+    def test_the_scraper_uses_the_short_form(self):
+        for comment in load("apify_profile_comments.json"):
+            self.assertRegex(comment["comment_urn"],
+                             r"^urn:li:comment:\((?:activity|ugcPost):\d+,\d+\)$")
+            self.assertNotIn("(urn:li:", comment["comment_urn"])
+
+    def test_the_parser_normalises_a_pasted_permalink_to_the_api_form(self):
+        from lib.url_parser import parse_linkedin_url
+
+        parsed = parse_linkedin_url(
+            "https://www.linkedin.com/feed/update/urn:li:activity:7500000000000000000"
+            "?commentUrn=urn%3Ali%3Acomment%3A%28activity%3A7500000000000000000"
+            "%2C7500000000000000001%29"
+        )
+        self.assertEqual(parsed["comment_urn"], self.API_FORM)
+
+    def test_the_builder_emits_the_api_form(self):
+        from lib.url_parser import build_parent_comment_urn
+
+        self.assertEqual(
+            build_parent_comment_urn("urn:li:activity:7500000000000000000", "7500000000000000001"),
+            self.API_FORM,
+        )
+
+    def test_the_skill_documents_the_form_it_actually_sends(self):
+        """The diagram in linkedin-reply-handler showed the short form for a
+        while, which is the one that does not work."""
+        text = (pathlib.Path(__file__).resolve().parent.parent
+                / "skills" / "linkedin-reply-handler" / "SKILL.md").read_text(encoding="utf-8")
+        diagram = re.search(r"Top comment by Alice.*?```", text, re.S)
+        self.assertIsNotNone(diagram, "the flattening diagram is gone")
+        self.assertIn("urn:li:comment:(urn:li:activity:", diagram.group(0))
