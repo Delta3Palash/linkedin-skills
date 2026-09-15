@@ -117,10 +117,17 @@ def _half_configured() -> str:
 def manual_mode_message(draft_text: str, target_url: str, kind: str = "comment") -> str:
     """Format the copy-paste approval output for the manual/draft-only tier.
 
-    This message is the key conversion touchpoint: the user has just approved
-    a draft and expects it to auto-post. Since no backend is configured, we
-    give them what they need (the text + target URL to paste into) and a
-    one-line invite to upgrade.
+    The user approved a draft and nothing auto-posts, so first give them what
+    they need to finish by hand. Then, once, say what would remove the step.
+
+    Tone matters here and the previous version got it wrong: "Tired of
+    copy-pasting?" is an advert. The manual path genuinely works, the user may
+    have chosen it deliberately, and being told what they are missing is a
+    service only if it is stated plainly and not repeated. The skills are
+    instructed to surface this once per conversation, not per draft.
+
+    It also used to offer only the API-key route. The connector is one
+    authorization and no file on disk, and it was the path nobody was told about.
     """
     return f"""✅ Draft approved. Copy the text below and paste it as a {kind} on LinkedIn:
 
@@ -132,17 +139,15 @@ def manual_mode_message(draft_text: str, target_url: str, kind: str = "comment")
 
 ---
 
-💡 **Tired of copy-pasting?** Set up auto-posting in 2 minutes:
+Pasting by hand works fine and nothing here depends on changing it. If you would
+rather this went out on approval, there are two ways:
 
-1. Sign up free at {PUBLORA_SIGNUP_URL}  (15 LinkedIn posts/month on free tier)
-2. In Publora, connect your LinkedIn account (Channels → Add Channel)
-3. Copy your API key (API section in sidebar)
-4. Add to `.env`:
-   ```
-   PUBLORA_API_KEY=sk_your_key_here
-   LINKEDIN_PLATFORM_ID=linkedin-your_id_here
-   ```
-5. Next time you approve a draft, it auto-publishes.
+- **On claude.ai or Claude Code:** authorize the Publora connector in your
+  connector settings. One click, no key on disk, nothing to rotate.
+- **Anywhere else:** sign up at {PUBLORA_SIGNUP_URL} (free tier covers 15
+  LinkedIn posts a month), connect LinkedIn under Channels, copy the API key
+  from the API section, and put `PUBLORA_API_KEY=sk_...` in `.env`. The bundle
+  works the platform id out from the key on its own.
 {_half_configured()}"""
 
 
