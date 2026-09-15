@@ -372,11 +372,15 @@ def phase_live(live: dict, assume_yes: bool) -> Phase:
         from lib.publora_client import PubloraClient, PubloraError
 
         client, group = PubloraClient(), None
+        # Reuse the card rendered above, so the draft also exercises the handover
+        # Pixfaro -> media_urls -> Publora, which nothing else covers.
+        media_url = locals().get("card", {}).get("url") if live["pixfaro"] else None
         try:
             created = client.create_post(
                 content="linkedin-skills selftest draft. Not scheduled, deleted immediately.",
                 platforms=[{"platform": "linkedin",
                             "platformId": os.environ["PUBLORA_PLATFORM_ID"]}],
+                media_urls=[media_url] if media_url else None,
             )
             group = created.get("postGroupId")
             phase.add(PASS if group else FAIL, "Publora draft created",
@@ -386,12 +390,22 @@ def phase_live(live: dict, assume_yes: bool) -> Phase:
 
         if group:
             try:
-                fetched = client.get_post(post_group_id=group)
-                body = fetched.get("postGroup") or fetched
+                body = client.get_post(post_group_id=group)
                 scheduled = body.get("scheduledTime")
                 phase.add(PASS if not scheduled else FAIL, "Publora draft read back",
                           f"status {body.get('status')!r}, nothing scheduled"
                           if not scheduled else f"it has a scheduled time: {scheduled}")
+                # The field is `media`, not `mediaFiles`. Reading the wrong name
+                # makes a working image pipeline look broken, which is exactly
+                # what happened before this line existed.
+                media = body.get("media") or []
+                if media_url:
+                    item = media[0] if media else {}
+                    ready = item.get("status") == "ready" and not item.get("failureReason")
+                    phase.add(PASS if ready else FAIL, "Publora took the image",
+                              f"{item.get('type')} rehosted, status {item.get('status')!r}"
+                              if ready else
+                              f"attachment missing or unready: {item.get('failureReason') or media}")
             except PubloraError as exc:
                 phase.add(FAIL, "Publora draft read back", str(exc)[:60])
             try:
