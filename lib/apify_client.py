@@ -35,7 +35,7 @@ import os
 import random
 import time
 from collections import OrderedDict
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import requests
 
@@ -183,12 +183,15 @@ class ApifyClient:
         scrape_replies: bool = False,
         force_refresh: bool = False,
     ) -> list[dict[str, Any]]:
-        """Return comments (and optionally replies) on a post.
+        """Return comments and their replies on a post.
 
         Args:
             post_id: Activity ID, ugcPost ID, or full post URL.
-            max_items: Cap on comments returned.
-            scrape_replies: If True, each comment's `replies` list is populated.
+            max_items: Cap on comments returned. The actor's schema caps `limit`
+                at 100, so a larger number is clamped rather than honoured.
+            scrape_replies: Accepted and ignored. The actor has no such input;
+                replies are always populated. Kept so existing callers do not
+                break. See the note below.
             force_refresh: Bypass cache.
         """
         items = self._run_sync(
@@ -198,7 +201,10 @@ class ApifyClient:
                 # Actor input schema calls this `limit` (max 100). Sending
                 # `maxItems` is silently ignored and every run bills 100 rows.
                 "limit": min(max_items, 100),
-                "scrapeReplies": scrape_replies,
+                # No `scrapeReplies` here on purpose: it is not in the actor's
+                # input schema, so sending it never did anything. The actor
+                # ("...-post-comments-replies-engagements-scraper...") returns
+                # replies unconditionally.
             },
             force_refresh=force_refresh,
         )
@@ -216,31 +222,68 @@ class ApifyClient:
         result_limit: int = 30,
         force_refresh: bool = False,
     ) -> list[dict[str, Any]]:
-        """Return a user's most recent comments across LinkedIn."""
+        """Return a user's most recent comments across LinkedIn.
+
+        `result_limit` is clamped to the actor's schema maximum of 3000.
+        """
         return self._run_sync(
             self.PROFILE_COMMENTS_ACTOR,
             # Actor takes `usernames` (array) and `limit`; the singular
             # `username` / `resultLimit` pair is ignored and bills 100 rows.
-            {"usernames": [username], "limit": result_limit},
+            {"usernames": [username], "limit": min(result_limit, 3000)},
             force_refresh=force_refresh,
         )
 
     # ---- Post engagers (likers + commenters) -----------------------------
+
+    #: What the engagers actor can return. It answers for one of these per run.
+    ENGAGER_TYPES = ("likers", "commenters", "reshares")
 
     def fetch_post_engagers(
         self,
         *,
         post_url: str,
         max_items: int = 50,
+        types: Sequence[str] = ("likers", "commenters"),
         force_refresh: bool = False,
     ) -> list[dict[str, Any]]:
-        """Return the people who liked or commented on a post."""
-        return self._run_sync(
-            self.POST_ENGAGERS_ACTOR,
-            # Actor takes `resultsLimit`, not `maxItems`.
-            {"urls": [post_url], "resultsLimit": max_items},
-            force_refresh=force_refresh,
-        )
+        """Return the people who liked or commented on a post.
+
+        The actor takes a required `type` and answers for that one audience per
+        run, defaulting to `likers`. Omitting it, as this client did until
+        v1.1.2, quietly returned likers only while the docstring and
+        `linkedin-engager-analytics` both promised commenters too.
+
+        Args:
+            post_url: The post to read.
+            max_items: Cap on records returned in total, not per type. The
+                budget is split evenly across `types`, so the cost of a call
+                does not change with how many audiences it asks for.
+            types: Which audiences to fetch, from `ENGAGER_TYPES`. One actor run
+                is billed per entry.
+            force_refresh: Bypass cache.
+        """
+        wanted = tuple(dict.fromkeys(types))
+        unknown = [t for t in wanted if t not in self.ENGAGER_TYPES]
+        if not wanted or unknown:
+            raise ValueError(
+                f"types must be a non-empty subset of {self.ENGAGER_TYPES}, got {types!r}"
+            )
+
+        per_type = max(1, min(max_items // len(wanted), 3000))
+        engagers: list[dict[str, Any]] = []
+        for kind in wanted:
+            rows = self._run_sync(
+                self.POST_ENGAGERS_ACTOR,
+                # Actor takes `resultsLimit`, not `maxItems`, and `type` is
+                # required. Copy rather than mutate: these dicts are cached.
+                {"urls": [post_url], "resultsLimit": per_type, "type": kind},
+                force_refresh=force_refresh,
+            )
+            engagers += [
+                {**r, "type": r.get("type", kind)} for r in rows if isinstance(r, dict)
+            ]
+        return engagers[:max_items]
 
     # ---- Cache helpers ----------------------------------------------------
 

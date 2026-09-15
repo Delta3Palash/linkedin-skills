@@ -169,6 +169,7 @@ ls skills/ | wc -l        # must equal 12
 python3 scripts/check_frontmatter.py   # parses; a dir count does not prove a skill loads
 python3 scripts/check_no_secrets.py    # .gitignore does not stop a rename of a tracked file
 python3 scripts/check_config.py --offline   # credential wiring; --offline skips the live API calls
+python3 scripts/check_actor_inputs.py  # Apify ignores unknown input keys; this catches a renamed one
 grep -nE '^description:' skills/*/SKILL.md SKILL.md | grep -E '—|–'   # must be empty
 ```
 
