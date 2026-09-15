@@ -175,11 +175,15 @@ class ApifyClient:
 
     # ---- Post comments ----------------------------------------------------
 
+    #: What the comments actor will sort by. Its own default is "most recent".
+    COMMENT_SORT_ORDERS = ("most relevant", "most recent")
+
     def fetch_post_comments(
         self,
         *,
         post_id: str,
         max_items: int = 20,
+        sort_order: str = "most relevant",
         scrape_replies: bool = False,
         force_refresh: bool = False,
     ) -> list[dict[str, Any]]:
@@ -189,11 +193,22 @@ class ApifyClient:
             post_id: Activity ID, ugcPost ID, or full post URL.
             max_items: Cap on comments returned. The actor's schema caps `limit`
                 at 100, so a larger number is clamped rather than honoured.
+            sort_order: "most relevant" or "most recent". We default to the
+                former, against the actor's own default, because a busy post's
+                newest comments carry no replies at all: measured on a post with
+                514 comments, the newest 20 held zero reply threads while the 20
+                most relevant held five. Every caller in this bundle needs the
+                thread structure, so "most recent" would quietly return none.
+                Pass it explicitly when the user asks for the newest.
             scrape_replies: Accepted and ignored. The actor has no such input;
-                replies are always populated. Kept so existing callers do not
-                break. See the note below.
+                replies come back either way, in each comment's `replies` list.
+                Kept so existing callers do not break.
             force_refresh: Bypass cache.
         """
+        if sort_order not in self.COMMENT_SORT_ORDERS:
+            raise ValueError(
+                f"sort_order must be one of {self.COMMENT_SORT_ORDERS}, got {sort_order!r}"
+            )
         items = self._run_sync(
             self.POST_COMMENTS_ACTOR,
             {
@@ -201,6 +216,7 @@ class ApifyClient:
                 # Actor input schema calls this `limit` (max 100). Sending
                 # `maxItems` is silently ignored and every run bills 100 rows.
                 "limit": min(max_items, 100),
+                "sortOrder": sort_order,
                 # No `scrapeReplies` here on purpose: it is not in the actor's
                 # input schema, so sending it never did anything. The actor
                 # ("...-post-comments-replies-engagements-scraper...") returns
