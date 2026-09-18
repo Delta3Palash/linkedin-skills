@@ -263,3 +263,45 @@ class PlatformIdResolution(unittest.TestCase):
     def test_other_platforms_are_never_mistaken_for_linkedin(self):
         """A prefix match, not a substring one: `mylinkedin-` is not LinkedIn."""
         self.assertIsNone(self.client([{"platformId": "mylinkedin-abc"}]).resolve_linkedin_platform_id())
+
+
+class UnpublishLimits(unittest.TestCase):
+    """`unpublish` cancels what has not gone out. It cannot take back what has.
+
+    The name promises more than the call can do, which is exactly why the limit
+    is pinned here rather than left to the docstring: Publora answers 409 for a
+    live post, and the client refuses before asking.
+    """
+
+    def test_it_refuses_a_published_post_before_calling(self):
+        from lib import backend_selector
+        from lib.publora_client import PubloraError
+
+        client = mock.Mock()
+        client.delete_post.side_effect = PubloraError(
+            "refusing to delete post group x: status is 'published'")
+        with mock.patch.dict("os.environ",
+                             {"PUBLORA_API_KEY": "k", "LINKEDIN_PLATFORM_ID": "linkedin-1"},
+                             clear=True), \
+             mock.patch("lib.publora_client.PubloraClient", return_value=client), \
+             self.assertRaises(PubloraError):
+            backend_selector.unpublish(post_group_id="x")
+
+    def test_without_an_id_it_does_not_guess(self):
+        """No id means no call: there is nothing safe to infer from a blank."""
+        from lib import backend_selector
+
+        with mock.patch.dict("os.environ",
+                             {"PUBLORA_API_KEY": "k", "LINKEDIN_PLATFORM_ID": "linkedin-1"},
+                             clear=True), \
+             mock.patch("lib.publora_client.PubloraClient") as client:
+            self.assertIsNone(backend_selector.unpublish())
+            client.assert_not_called()
+
+    def test_manual_mode_says_there_is_nothing_to_cancel(self):
+        from lib import backend_selector
+
+        with mock.patch.dict("os.environ", {}, clear=True):
+            result = backend_selector.unpublish(post_group_id="x")
+        self.assertEqual(result["mode"], "manual")
+        self.assertIn("nothing", result["message"].lower())

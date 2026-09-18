@@ -168,6 +168,15 @@ def unpublish(post_group_id: Optional[str] = None, **kwargs: Any) -> Optional[di
     the post is already queued on Publora's side and nothing in the bundle
     otherwise takes it down.
 
+    **It cannot take down a post that already went out, and the name oversells
+    that.** Once a post is live, Publora answers 409 `POST_IS_PUBLISHED` and
+    `PubloraClient.delete_post` refuses before even asking. That is deliberate
+    on both sides: deleting the record of a live post destroys its media and its
+    stats while the post stays up on LinkedIn. A live post comes down on
+    LinkedIn, by hand. Same for 409 `POST_HAS_LIVE_CONTENT` (part of a
+    multi-platform group is already out) and `POST_IS_PROCESSING` (it is being
+    sent right now, so try again in a moment).
+
     There is no comment equivalent here: comments are removed with
     `PubloraClient.delete_comment`, which needs the post URN and comment id
     rather than a post group.
